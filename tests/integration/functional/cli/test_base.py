@@ -55,7 +55,6 @@ def test_init_creates_from_templates(
             "--template-with-defaults",
         ],
     )
-
     assert result.exit_code == 0
     assert (tmp_path / REPOSITORY_DIRECTORY_NAME).exists()
     files_in_top_level = set([f.lower() for f in os.listdir(str(tmp_path))])

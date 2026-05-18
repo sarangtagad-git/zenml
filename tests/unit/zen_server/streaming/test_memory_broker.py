@@ -15,10 +15,10 @@
 
 import asyncio
 
-import pytest
-
-from zenml.zen_server.streaming.broker import StreamTruncatedError
-from zenml.zen_server.streaming.brokers.memory import InMemoryBroker
+from zenml.zen_server.streaming.brokers.memory import (
+    InMemoryBroker,
+    InMemoryBrokerSettings,
+)
 
 
 def _run(coro):
@@ -26,10 +26,10 @@ def _run(coro):
 
 
 def test_publish_returns_ids_in_order():
-    """Publish returns ids in order."""
+    """Returned ids match the publish order, one per payload."""
 
     async def scenario():
-        broker = InMemoryBroker(max_len=10)
+        broker = InMemoryBroker(settings=InMemoryBrokerSettings(max_len=10))
         ids = await broker.publish("k", [b"a", b"b", b"c"])
         assert [int(i) for i in ids] == [1, 2, 3]
         return ids
@@ -38,10 +38,10 @@ def test_publish_returns_ids_in_order():
 
 
 def test_read_from_beginning():
-    """Read from beginning."""
+    """A None cursor reads every retained entry from the start of the stream."""
 
     async def scenario():
-        broker = InMemoryBroker(max_len=10)
+        broker = InMemoryBroker(settings=InMemoryBrokerSettings(max_len=10))
         await broker.publish("k", [b"a", b"b"])
         events = await broker.read("k", None, max_count=10, block_ms=0)
         assert [e.payload for e in events] == [b"a", b"b"]
@@ -50,10 +50,10 @@ def test_read_from_beginning():
 
 
 def test_read_strictly_after_cursor():
-    """Read strictly after cursor."""
+    """Reads with a cursor yield entries with strictly greater ids."""
 
     async def scenario():
-        broker = InMemoryBroker(max_len=10)
+        broker = InMemoryBroker(settings=InMemoryBrokerSettings(max_len=10))
         ids = await broker.publish("k", [b"a", b"b", b"c"])
         events = await broker.read("k", ids[0], max_count=10, block_ms=0)
         assert [e.payload for e in events] == [b"b", b"c"]
@@ -62,10 +62,10 @@ def test_read_strictly_after_cursor():
 
 
 def test_read_blocks_until_publish_or_timeout():
-    """Read blocks until publish or timeout."""
+    """A blocking read wakes up as soon as the next publish lands."""
 
     async def scenario():
-        broker = InMemoryBroker(max_len=10)
+        broker = InMemoryBroker(settings=InMemoryBrokerSettings(max_len=10))
 
         async def late_publish():
             await asyncio.sleep(0.05)
@@ -80,10 +80,10 @@ def test_read_blocks_until_publish_or_timeout():
 
 
 def test_read_returns_empty_on_block_timeout():
-    """Read returns empty on block timeout."""
+    """A blocking read returns an empty list when the timeout elapses."""
 
     async def scenario():
-        broker = InMemoryBroker(max_len=10)
+        broker = InMemoryBroker(settings=InMemoryBrokerSettings(max_len=10))
         events = await broker.read("k", None, max_count=10, block_ms=10)
         assert events == []
 
@@ -91,10 +91,10 @@ def test_read_returns_empty_on_block_timeout():
 
 
 def test_latest_id_reports_most_recent():
-    """Latest id reports most recent."""
+    """latest_id returns None on an empty stream and the newest id otherwise."""
 
     async def scenario():
-        broker = InMemoryBroker(max_len=10)
+        broker = InMemoryBroker(settings=InMemoryBrokerSettings(max_len=10))
         assert await broker.latest_id("k") is None
         ids = await broker.publish("k", [b"a", b"b"])
         assert await broker.latest_id("k") == ids[-1]
@@ -102,25 +102,11 @@ def test_latest_id_reports_most_recent():
     _run(scenario())
 
 
-def test_truncation_raises_when_cursor_trimmed():
-    """Truncation raises when cursor trimmed."""
-
-    async def scenario():
-        broker = InMemoryBroker(max_len=2)
-        ids = await broker.publish("k", [b"a"])
-        # Add more events so the first one falls off the cap.
-        await broker.publish("k", [b"b", b"c", b"d"])
-        with pytest.raises(StreamTruncatedError):
-            await broker.read("k", ids[0], max_count=10, block_ms=0)
-
-    _run(scenario())
-
-
 def test_delete_stream_is_idempotent():
-    """Delete stream is idempotent."""
+    """Calling delete_stream twice (and on unknown keys) is a no-op."""
 
     async def scenario():
-        broker = InMemoryBroker(max_len=10)
+        broker = InMemoryBroker(settings=InMemoryBrokerSettings(max_len=10))
         await broker.publish("k", [b"a"])
         await broker.delete_stream("k")
         await broker.delete_stream("k")

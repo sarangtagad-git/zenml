@@ -32,6 +32,7 @@ from zenml.artifacts.utils import _store_artifact_data_and_prepare_request
 from zenml.client import Client
 from zenml.config.step_configurations import StepConfiguration
 from zenml.config.step_run_info import StepRunInfo
+from zenml.constants import handle_float_env_var
 from zenml.enums import ArtifactSaveType, ExecutionStatus
 from zenml.exceptions import StepInterfaceError
 from zenml.hooks.hook_validators import load_and_run_hook
@@ -94,16 +95,19 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-_STREAM_FLUSH_TIMEOUT_SECONDS = 2.0
-
 
 def _flush_streams_at_step_end() -> None:
-    """Drain pending stream events; warn (don't raise) on timeout."""
-    if not flush_stream_publisher(timeout=_STREAM_FLUSH_TIMEOUT_SECONDS):
+    """Drain pending stream events and warn on timeout."""
+    timeout = handle_float_env_var(
+        "ZENML_STREAM_STEP_END_FLUSH_TIMEOUT", default=2.0
+    )
+    if not flush_stream_publisher(timeout=timeout):
         logger.warning(
             "Stream publisher did not drain within %.1fs at step end; "
-            "some events may not have reached the server.",
-            _STREAM_FLUSH_TIMEOUT_SECONDS,
+            "some events may not have reached the server. Raise the "
+            "ZENML_STREAM_STEP_END_FLUSH_TIMEOUT env var if this happens "
+            "regularly.",
+            timeout,
         )
 
 

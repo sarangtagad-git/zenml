@@ -250,8 +250,8 @@ streaming_heartbeat_seconds: {{ .ZenML.streaming.heartbeatSeconds | quote }}
 {{- if .ZenML.streaming.maxConsumersPerStream }}
 streaming_max_consumers_per_stream: {{ .ZenML.streaming.maxConsumersPerStream | quote }}
 {{- end }}
-{{- if .ZenML.streaming.hubIdleGraceSeconds }}
-streaming_hub_idle_grace_seconds: {{ .ZenML.streaming.hubIdleGraceSeconds | quote }}
+{{- if .ZenML.streaming.broadcasterIdleGraceSeconds }}
+streaming_broadcaster_idle_grace_seconds: {{ .ZenML.streaming.broadcasterIdleGraceSeconds | quote }}
 {{- end }}
 {{- end }}
 {{- if .ZenML.auth.jwtTokenAlgorithm }}

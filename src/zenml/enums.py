@@ -295,6 +295,20 @@ class AnnotationTasks(StrEnum):
     TEXT_CLASSIFICATION = "text_classification"
 
 
+class SSEEventName(StrEnum):
+    """Reserved SSE `event:` names emitted by the run-events stream.
+
+    These are wire protocol — values are part of the public contract with
+    SSE consumers and must not be renamed without a deprecation path.
+    """
+
+    END = "end"
+    GAP = "gap"
+    ERROR = "error"
+    CURSOR = "cursor"
+    SYSTEM = "system"
+
+
 class SecretValidationLevel(StrEnum):
     """Secret validation levels."""
 

@@ -11,7 +11,7 @@
 #  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express
 #  or implied. See the License for the specific language governing
 #  permissions and limitations under the License.
-"""End-of-run broker signal: handler + helpers."""
+"""Event handler that emits a terminal frame when a run completes."""
 
 import asyncio
 from uuid import UUID
@@ -20,39 +20,31 @@ from zenml.dispatcher import EventHandler
 from zenml.logger import get_logger
 from zenml.models import PipelineRunResponse
 from zenml.utils.time_utils import exponential_backoff_delays
-from zenml.zen_server.streaming.broker import StreamBroker
-from zenml.zen_server.streaming.wire import EndFrame, encode_frame
-from zenml.zen_server.utils import server_config
+from zenml.zen_server.streaming.brokers.base import StreamBroker
+from zenml.zen_server.streaming.brokers.frames import EndFrame, encode_frame
+from zenml.zen_server.streaming.brokers.utils import stream_key_for_run
 
 logger = get_logger(__name__)
 
-# Total publish attempts (the backoff iterator yields N-1 delays
-# between N attempts; e.g., 3 attempts → 2 sleeps).
 _END_PUBLISH_MAX_ATTEMPTS = 3
-
-
-def stream_key_for_run(pipeline_run_id: UUID) -> str:
-    """Broker stream key for a pipeline run, scoped to this server."""
-    return (
-        f"zenml:stream:server:{server_config().deployment_id}"
-        f":run:{pipeline_run_id}"
-    )
+_POST_END_CLEANUP_DELAY_SECONDS = 60.0
 
 
 class StreamEndEventHandler(EventHandler):
-    """Schedules a terminal `EndFrame` publish when a run reaches a terminal state.
-
-    Captures the broker + loop at construction so the dispatcher fire
-    (which may be on a worker thread) can hand the publish off to the
-    streaming subsystem's loop.
-    """
+    """Schedule a terminal `EndFrame` publish when a run becomes terminal."""
 
     def __init__(
         self,
         broker: StreamBroker,
         loop: asyncio.AbstractEventLoop,
     ) -> None:
-        """Capture broker + loop for cross-thread scheduling."""
+        """Capture broker + loop for cross-thread scheduling.
+
+        Args:
+            broker: The stream broker to publish the EndFrame to.
+            loop: Event loop owning the broker. The dispatcher may
+                fire on any thread.
+        """
         self._broker = broker
         self._loop = loop
 
@@ -64,15 +56,14 @@ class StreamEndEventHandler(EventHandler):
         """
         if run.in_progress:
             return
-        if self._loop.is_closed():
-            logger.debug(
-                "Skipping stream-end publish for run %s: event loop is closed",
-                run.id,
-            )
-            return
         try:
             asyncio.run_coroutine_threadsafe(
                 self._publish_end(run.id), self._loop
+            )
+        except RuntimeError:
+            logger.debug(
+                "Skipping stream-end publish for run %s: event loop closed",
+                run.id,
             )
         except Exception:
             logger.exception(
@@ -80,8 +71,26 @@ class StreamEndEventHandler(EventHandler):
             )
 
     async def _publish_end(self, pipeline_run_id: UUID) -> None:
-        payload = encode_frame(EndFrame(pipeline_run_id=pipeline_run_id))
+        """Publish a terminal EndFrame to the run's broker stream.
+
+        Args:
+            pipeline_run_id: The pipeline run whose stream to terminate.
+        """
         stream_key = stream_key_for_run(pipeline_run_id)
+        stream_is_empty = False
+        try:
+            stream_is_empty = (
+                await self._broker.latest_id(stream_key)
+            ) is None
+        except Exception:
+            stream_is_empty = False
+        if stream_is_empty:
+            logger.debug(
+                "Skipping stream-end publish for run %s: stream is empty.",
+                pipeline_run_id,
+            )
+            return
+        payload = encode_frame(EndFrame(pipeline_run_id=pipeline_run_id))
         delays = exponential_backoff_delays(
             attempts=_END_PUBLISH_MAX_ATTEMPTS - 1,
             initial_delay=0.5,
@@ -93,7 +102,7 @@ class StreamEndEventHandler(EventHandler):
             attempt += 1
             try:
                 await self._broker.publish(stream_key, [payload])
-                return
+                break
             except asyncio.CancelledError:
                 return
             except Exception as exc:
@@ -118,3 +127,32 @@ class StreamEndEventHandler(EventHandler):
                     await asyncio.sleep(delay)
                 except asyncio.CancelledError:
                     return
+
+        asyncio.create_task(
+            self._cleanup_after_grace(stream_key),
+            name=f"stream-end-cleanup[{stream_key}]",
+        )
+
+    async def _cleanup_after_grace(self, stream_key: str) -> None:
+        """Drop the broker stream after the post-end grace window.
+
+        Args:
+            stream_key: The broker stream key to delete.
+
+        Raises:
+            asyncio.CancelledError: If the task is cancelled mid-delete.
+        """
+        try:
+            await asyncio.sleep(_POST_END_CLEANUP_DELAY_SECONDS)
+        except asyncio.CancelledError:
+            return
+        try:
+            await self._broker.delete_stream(stream_key)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.debug(
+                "Post-end cleanup of broker stream %s failed",
+                stream_key,
+                exc_info=True,
+            )

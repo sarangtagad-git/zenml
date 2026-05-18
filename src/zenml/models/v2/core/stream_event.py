@@ -26,7 +26,7 @@ from zenml.constants import (
 
 
 class StreamEvent(BaseModel):
-    """A single producer-published event on a pipeline run's stream."""
+    """Stream event."""
 
     pipeline_run_id: UUID
     step_run_id: Optional[UUID] = None
@@ -39,23 +39,33 @@ class StreamEvent(BaseModel):
     @field_validator("kind")
     @classmethod
     def _reject_reserved_kind(cls, value: str) -> str:
+        """Reject kinds that collide with reserved SSE control event names.
+
+        Args:
+            value: The kind value to validate.
+
+        Raises:
+            ValueError: If the kind collides with a reserved SSE name.
+
+        Returns:
+            The validated kind value.
+        """
         if value in RESERVED_STREAM_EVENT_KINDS:
             raise ValueError(
-                f"kind {value!r} collides with an SSE control event name "
-                f"({sorted(RESERVED_STREAM_EVENT_KINDS)}); "
-                "pick a different `kind`."
+                f"Kind {value} collides with an SSE control event name "
+                f"({sorted(RESERVED_STREAM_EVENT_KINDS)})"
             )
         return value
 
 
 class StreamBatchRequest(BaseModel):
-    """Producer-side batched ingest body for run stream events."""
+    """Stream batch request."""
 
     events: List[StreamEvent] = Field(max_length=STREAM_EVENT_MAX_BATCH_SIZE)
 
 
 class StreamBatchResponse(BaseModel):
-    """Server-side response from the batched ingest endpoint."""
+    """Stream batch response."""
 
     count: int
     last_id: Optional[str] = None

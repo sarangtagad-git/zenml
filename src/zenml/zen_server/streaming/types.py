@@ -11,8 +11,33 @@
 #  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express
 #  or implied. See the License for the specific language governing
 #  permissions and limitations under the License.
-"""Producer API for live event streaming inside pipelines."""
+"""Types yielded by the stream broadcaster to consumers."""
 
-from zenml.streams.publishing import flush, publish
+from dataclasses import dataclass
+from typing import Union
 
-__all__ = ["flush", "publish"]
+from zenml.utils.enum_utils import StrEnum
+from zenml.zen_server.streaming.brokers.base import BrokerEntry
+
+
+class GapReason(StrEnum):
+    """Reason a `GapMarker` was emitted."""
+
+    SHUTDOWN = "shutdown"
+    OUTAGE = "outage"
+    OVERFLOW = "overflow"
+
+
+@dataclass(frozen=True)
+class GapMarker:
+    """Gap marker."""
+
+    reason: GapReason
+
+
+@dataclass(frozen=True)
+class EndMarker:
+    """End marker."""
+
+
+YieldItem = Union[BrokerEntry, GapMarker, EndMarker]
