@@ -2015,7 +2015,9 @@ class SqlZenStore(BaseZenStore):
         )
 
         if uuid_utils.is_valid_uuid(api_key_name_or_id):
-            filter_params = APIKeySchema.id == api_key_name_or_id
+            filter_params = APIKeySchema.id == uuid_utils.to_uuid(
+                api_key_name_or_id
+            )
         else:
             filter_params = APIKeySchema.name == api_key_name_or_id
 
@@ -7368,7 +7370,7 @@ class SqlZenStore(BaseZenStore):
 
             stmt = (
                 update(StepRunSchema)
-                .where(col(StepRunSchema.pipeline_run_id) == str(run_id))
+                .where(col(StepRunSchema.pipeline_run_id) == run_id)
                 .values(heartbeat_threshold=None)
             )
 
@@ -8145,7 +8147,7 @@ class SqlZenStore(BaseZenStore):
                     delete(TriggerSnapshotSchema).where(
                         col(TriggerSnapshotSchema.trigger_id) == trigger_id
                     )
-                )  # type: ignore[call-overload]
+                )  # type: ignore[call-overload, unused-ignore]
 
             session.commit()
 
@@ -13336,6 +13338,7 @@ class SqlZenStore(BaseZenStore):
             f"Unable to get {resource_type} with ID "
             f"'{resource_id}': No {resource_type} with this ID found"
         )
+        resource_id = uuid_utils.to_uuid(resource_id)
         query = select(schema_class).where(schema_class.id == resource_id)
         if project_id:
             error_msg += f" in project `{str(project_id)}`"
@@ -13343,6 +13346,7 @@ class SqlZenStore(BaseZenStore):
                 raise RuntimeError(
                     f"Schema {schema_class.__name__} is not project-scoped."
                 )
+            project_id = uuid_utils.to_uuid(project_id)
 
             query = query.where(schema_class.project_id == project_id)  # type: ignore[attr-defined]
 
@@ -13380,6 +13384,7 @@ class SqlZenStore(BaseZenStore):
         """
         schema_name = get_resource_type_name(schema_class)
         if uuid_utils.is_valid_uuid(object_name_or_id):
+            object_name_or_id = uuid_utils.to_uuid(object_name_or_id)
             filter_params = schema_class.id == object_name_or_id
             error_msg = (
                 f"Unable to get {schema_name} with name or ID "
@@ -13396,6 +13401,7 @@ class SqlZenStore(BaseZenStore):
         query = select(schema_class).where(filter_params)
         if project_name_or_id and hasattr(schema_class, "project_id"):
             if uuid_utils.is_valid_uuid(project_name_or_id):
+                project_name_or_id = uuid_utils.to_uuid(project_name_or_id)
                 query = query.where(
                     schema_class.project_id == project_name_or_id  # type: ignore[attr-defined]
                 )
@@ -13751,7 +13757,9 @@ class SqlZenStore(BaseZenStore):
         account_type = ""
         query = select(UserSchema)
         if uuid_utils.is_valid_uuid(account_name_or_id):
-            query = query.where(UserSchema.id == account_name_or_id)
+            query = query.where(
+                UserSchema.id == uuid_utils.to_uuid(account_name_or_id)
+            )
         else:
             query = query.where(UserSchema.name == account_name_or_id)
         if service_account is not None:
@@ -14683,13 +14691,16 @@ class SqlZenStore(BaseZenStore):
             query = select(ModelVersionArtifactSchema).where(
                 ModelVersionArtifactSchema.model_version_id == model_version.id
             )
-            try:
-                UUID(str(model_version_artifact_link_name_or_id))
+            if uuid_utils.is_valid_uuid(
+                model_version_artifact_link_name_or_id
+            ):
                 query = query.where(
                     ModelVersionArtifactSchema.id
-                    == model_version_artifact_link_name_or_id
+                    == uuid_utils.to_uuid(
+                        model_version_artifact_link_name_or_id
+                    )
                 )
-            except ValueError:
+            else:
                 query = (
                     query.where(
                         ModelVersionArtifactSchema.artifact_version_id
@@ -14852,13 +14863,16 @@ class SqlZenStore(BaseZenStore):
                 ModelVersionPipelineRunSchema.model_version_id
                 == model_version.id
             )
-            try:
-                UUID(str(model_version_pipeline_run_link_name_or_id))
+            if uuid_utils.is_valid_uuid(
+                model_version_pipeline_run_link_name_or_id
+            ):
                 query = query.where(
                     ModelVersionPipelineRunSchema.id
-                    == model_version_pipeline_run_link_name_or_id
+                    == uuid_utils.to_uuid(
+                        model_version_pipeline_run_link_name_or_id
+                    )
                 )
-            except ValueError:
+            else:
                 query = query.where(
                     ModelVersionPipelineRunSchema.pipeline_run_id
                     == PipelineRunSchema.id
